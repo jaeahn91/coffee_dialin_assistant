@@ -53,8 +53,9 @@ try {
   if (!recipe) {
     recipe = (await c.query(
       `insert into recipe (roaster_id, bean_id, version, dripper, dose_g, water_g,
-        water_temp_c, brew_time_min_s, brew_time_max_s, grind_text, grind_um)
-       values ($1, $2, 1, 'V60', 15, 250, 92, 150, 180, '코만단테 22클릭', 700) returning id`,
+        water_temp_c, brew_time_min_s, brew_time_max_s, grind_text, grind_um, pour_text)
+       values ($1, $2, 1, 'V60', 15, 250, 92, 150, 180, '코만단테 22클릭', 700,
+         E'뜸 30g (30초)\\n본 추출 250g까지') returning id`,
       [roaster, bean],
     )).rows[0].id;
   }

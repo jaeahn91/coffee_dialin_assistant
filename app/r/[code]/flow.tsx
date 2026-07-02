@@ -164,6 +164,11 @@ export default function Flow({
 
   const canGoBack = bailed || history.length > 0;
   const lines = recipeLines(recipe, adjusted);
+  // 붓기 텍스트는 박제(총량 조정을 모름) — 물량이 조정된 화면에선 어긋남을 힌트로 무마한다.
+  const waterDelta =
+    adjusted?.water_g != null && recipe.water_g !== null
+      ? adjusted.water_g - recipe.water_g
+      : 0;
 
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-5 py-10">
@@ -186,9 +191,16 @@ export default function Flow({
           ))}
         </dl>
         {recipe.pour_text && (
-          <p className="mt-2 whitespace-pre-line border-t border-black/5 pt-2 text-sm opacity-80 dark:border-white/10">
-            {recipe.pour_text}
-          </p>
+          <div className="mt-2 border-t border-black/5 pt-2 text-sm opacity-80 dark:border-white/10">
+            <p className="whitespace-pre-line">{recipe.pour_text}</p>
+            {waterDelta !== 0 && (
+              <p className="mt-1 text-xs opacity-70">
+                {waterDelta > 0
+                  ? `늘어난 물 ${waterDelta}g은 마지막 푸어에 더해 주세요.`
+                  : `줄어든 물 ${-waterDelta}g은 마지막 푸어에서 빼 주세요.`}
+              </p>
+            )}
+          </div>
         )}
         {lastSolution && (
           <p className="mt-2 text-sm font-medium">최근 솔루션: {lastSolution}</p>
