@@ -3,9 +3,9 @@
 > 세션이 끊겨도 여기서 바로 이어받기 위한 메모. 끝난 항목은 지우거나 체크.
 
 ## 지금 할 일
-- **🔴 마이그레이션 Supabase 적용 (비가역 — 사용자 확인 후)**: `0001_init.sql` + `0002_rpc.sql` 순서대로 SQL Editor 또는 CLI로. 아직 **미적용**. 복합 FK의 `on delete set null (컬럼)` 문법 때문에 **PostgreSQL 15+ 필요**(Supabase 신규 프로젝트는 충족) — 적용 시 에러 나면 버전부터 확인.
-- **적용 후 실데이터 E2E 검증**: roaster/bean/recipe/qr_code 1세트 시드 → `/r/<code>` 수동 주행(dev 서버) → `page_view`·`brew_session`·`feedback`·`adjustment` 행과 사슬(prev_adjustment_id) 확인. RPC SQL은 아직 실행된 적 없음 — 이 검증 전까지는 미검증 코드.
-- **QR 발급 도구**: `crypto.getRandomValues` base64url 21자 코드 N장 생성(결정 메모 참조). 파일럿은 스크립트로 시작해도 됨(대시보드는 Phase C).
+- **QR 발급 도구**: base64url 21자 코드 N장 생성(결정 메모 참조). `scripts/seed-e2e.mjs`의 `newQrCode()`가 규격 구현체 — 발급 스크립트로 분리하면 됨(대시보드는 Phase C).
+- **폰에서 실물 주행**: dev 서버 띄우고(`npm run dev`) 시드 QR URL을 폰 브라우저로 열어 §5 흐름 끝까지 — 서버 액션 경로(세션 시작→피드백 기록)는 아직 브라우저로는 미주행(스크립트로는 RPC 레벨 검증 완료).
+- **시드 데이터 정리**: 파일럿 시작 전 '시드 테스트 로스터리' 행 삭제(cascade로 전부 정리됨).
 - **재스캔 시 직전 조정 반영 표시**: 세션 사슬의 after_snapshot을 표시 레시피에 반영(§8-5). 현재는 항상 기준 레시피 표시(ADR-001 알려진 한계).
 - **챗봇 폴백 스텁** (§9 경계 — 룰은 AI 호출 안 함). 현재는 안내 문구만. bail 중도이탈 기록도 이때 재검토.
 - **디자인/스타일링** 다듬기 (현재 최소 Tailwind).
@@ -24,6 +24,7 @@
 - **알려진 취약점 경고(무시 중)**: `npm audit`의 postcss moderate 2건은 Next.js 내장 사본 문제. `audit fix --force`는 next를 9.x로 다운그레이드하므로 **절대 실행 금지** — Next 패치 릴리스 대기. 실위험 낮음(사용자 제어 CSS 없음).
 
 ## 완료됨
+- ✅ **마이그레이션 적용 + E2E 실주행 (2026-07-02)** — PostgreSQL 17.6에 0001+0002 적용(`scripts/db-apply.mjs`, SUPABASE_DB_URL 경유). `scripts/seed-e2e.mjs`로 RPC 10개 검증 전부 통과: §8-5 사슬 연결, 원자 기록, hold는 조정 없음, 중복 차단, 일일 상한, 미존재 코드 거절, **복합 FK 교차 테넌트 차단 실증**. dev 서버로 랜딩/실QR(시드 데이터 렌더)/미존재 3상태 + page_view 기록 확인. devDep `pg` 추가.
 - ✅ **쓰기 경로 B+ 구현 (2026-07-02, ADR-001)** — `docs/ADR-001_write-path.md`(결정·트리거·씸 계약·보류 목록). `0002_rpc.sql`(start_brew_session·record_feedback, 원자 기록+사슬+상한, anon 실행권한 회수), `0001`에 `page_view` 추가(퍼널 1단). `lib/server/derive.ts`(zod+flowStep 서버 재주행, 경로 밖 필드 무시, applyMoves 스냅샷) + 테스트 12. `lib/db` sessions/feedback/page-views. `app/r/[code]/`(서버 페이지+상태별 안내, Flow 클라이언트, 얇은 액션 2개). 루트는 랜딩으로 교체. dep `zod`. 테스트 35, 빌드 통과. **DB 미적용이라 RPC는 실행 미검증**.
 - ✅ **보안 리뷰 Phase A (2026-07-02)** — 0001 스키마에 복합 FK 테넌트 강제 반영(미적용 SQL이라 무비용), `client.ts`에 `server-only`, `qr.ts`가 `QrResolution` 상태 유니온 반환(폐기/미존재/미준비 구분), `describe.test.ts`로 §9 고정 템플릿 잠금(테스트 23개). dep `server-only` 추가.
 - ✅ **`lib/db` 데이터 계층 골격 + 스키마 SQL** — `supabase/migrations/0001_init.sql`(9엔티티+enum+인덱스+RLS), `lib/db/client.ts`(server-only service_role 싱글턴), `lib/db/schema.ts`(행 타입, 도메인 enum 재사용), `lib/db/qr.ts`(`getRecipeByQrCode` 읽기 슬라이스). dep `@supabase/supabase-js` 추가. **SQL은 아직 미적용**.
@@ -34,8 +35,8 @@
 - ✅ 컨텍스트 % 상태줄 + 40% `/compact` 권장 (`.claude/`, 개인 설정·미커밋).
 
 ## 현재 상태 스냅샷 (2026-07-02)
-- 테스트 35 pass (불변식 5 + 흐름 13 + §9 템플릿 5 + 서버 재도출 12). `npm run check`·`next build` 통과.
-- Next.js 16 / Node 22 LTS. Supabase 프로젝트·신형 키(`.env.local`) 준비·검증 완료. `@supabase/supabase-js` 설치됨.
-- DB: 스키마 SQL 작성 완료(복합 FK 보강 포함), **Supabase 미적용**. `lib/db`에서 쓰기 repo는 아직 없음(읽기 `getRecipeByQrCode`만).
-- 이 노트북(NB-26062424)에는 Node가 없어서 v22.23.1을 유저 스코프로 설치함(`%LOCALAPPDATA%\Programs\node-v22.23.1-win-x64`, 유저 PATH 등록). 새 셸에서 `node -v`로 확인.
+- 테스트 35 pass + DB E2E 10 체크 통과. `npm run check`·`next build` 통과.
+- **DB 적용됨**: PostgreSQL 17.6 (서울 리전 aws-1-ap-northeast-2). 시드 데이터('시드 테스트 로스터리') 존재.
+- `.env.local` 3개 값: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`(sb_secret), `SUPABASE_DB_URL`(마이그레이션용, **비밀번호는 percent-encoding 필수** — `#`·`@` 등이 env 파싱·URL 파싱을 깨뜨림).
+- 이 노트북(NB-26062424)에는 Node v22.23.1을 유저 스코프로 설치함(`%LOCALAPPDATA%\Programs\node-v22.23.1-win-x64`, 유저 PATH 등록).
 - push 정책: 커밋은 자유, **push는 매번 확인 후**.
