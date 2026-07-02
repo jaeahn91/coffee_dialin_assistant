@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { describePrescription } from "@/lib/domain/describe";
+import { describeMove, describePrescription } from "@/lib/domain/describe";
 import { flowStep, type FlowInput, type FlowQuestion, type FlowResult } from "@/lib/domain/flow";
 import type { Prescription } from "@/lib/domain/types";
 import { UNSPECIALTY_COMPASS_URL } from "@/lib/config/links";
@@ -119,6 +119,9 @@ export default function Flow({
   const [input, setInput] = useState<FlowInput>({});
   const [history, setHistory] = useState<FlowInput[]>([]); // 한 단계씩 되돌리기용
   const [bailed, setBailed] = useState(false);
+  // 이번 방문에서 기록된 조정 — 완주 직후부터 카드가 최신 사슬을 보여준다("처음부터"로
+  // 돌아와도 유지). 서버 응답의 after/moves를 그대로 반영하므로 페이지 재조회와 동치.
+  const [live, setLive] = useState<{ adjusted: AdjustedParams; lastSolution: string } | null>(null);
 
   // 세션은 첫 답변 시 1회 시작(ADR-001). 기록도 방문당 1회 — "처음부터"는 UI만 리셋.
   const sessionRef = useRef<Promise<StartSessionResult> | null>(null);
@@ -136,6 +139,15 @@ export default function Flow({
       if (!session?.ok) return; // 세션이 없으면 기록만 생략 — 처방 안내는 그대로
       const r: SubmitResult = await submitFeedbackAction(code, session.sessionId, input);
       if (!r.ok) console.error("피드백 기록 실패:", r.reason);
+      else if (r.applied)
+        setLive({
+          adjusted: {
+            dose_g: r.applied.after.dose_g,
+            water_g: r.applied.after.water_g,
+            water_temp_c: r.applied.after.water_temp_c,
+          },
+          lastSolution: r.applied.moves.map(describeMove).join(" + "),
+        });
     })();
   }, [result.kind, bailed, code, input]);
 
@@ -165,11 +177,13 @@ export default function Flow({
   // 완료(기록됨) 화면에선 뒤로를 숨긴다 — 기록은 방문당 1회라 뒤로 가서 답을 바꿔도
   // 재기록되지 않아 화면과 데이터가 어긋난다. "처음부터"만 남김(도움 화면의 뒤로는 유지).
   const canGoBack = bailed || (result.kind === "ask" && history.length > 0);
-  const lines = recipeLines(recipe, adjusted);
+  const effAdjusted = live?.adjusted ?? adjusted;
+  const effSolution = live?.lastSolution ?? lastSolution;
+  const lines = recipeLines(recipe, effAdjusted);
   // 붓기 텍스트는 박제(총량 조정을 모름) — 물량이 조정된 화면에선 어긋남을 힌트로 무마한다.
   const waterDelta =
-    adjusted?.water_g != null && recipe.water_g !== null
-      ? adjusted.water_g - recipe.water_g
+    effAdjusted?.water_g != null && recipe.water_g !== null
+      ? effAdjusted.water_g - recipe.water_g
       : 0;
 
   return (
@@ -183,7 +197,7 @@ export default function Flow({
 
       <section className="rounded-xl border border-black/10 p-4 dark:border-white/15">
         <p className="text-xs font-medium uppercase tracking-wide opacity-60">
-          {adjusted ? "오늘의 추천 레시피 · 지난 피드백 반영" : "오늘의 추천 레시피"}
+          {effAdjusted ? "오늘의 추천 레시피 · 지난 피드백 반영" : "오늘의 추천 레시피"}
         </p>
         <p className="mt-1 font-medium">{recipe.beanName}</p>
         {recipe.beanIntro && <p className="mt-1 text-sm opacity-70">{recipe.beanIntro}</p>}
@@ -204,8 +218,8 @@ export default function Flow({
             )}
           </div>
         )}
-        {lastSolution && (
-          <p className="mt-2 text-sm font-medium">최근 솔루션: {lastSolution}</p>
+        {effSolution && (
+          <p className="mt-2 text-sm font-medium">최근 솔루션: {effSolution}</p>
         )}
         <a
           href={UNSPECIALTY_COMPASS_URL}

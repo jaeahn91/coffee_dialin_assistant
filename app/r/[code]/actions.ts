@@ -3,6 +3,7 @@
 import { recordFeedback } from "@/lib/db/feedback";
 import { getRecipeByQrCode } from "@/lib/db/qr";
 import { getSessionBaseline, startBrewSession, type StartSessionResult } from "@/lib/db/sessions";
+import type { Move } from "@/lib/domain/types";
 import { applyMoves, deriveFeedback, type RecipeParams } from "@/lib/server/derive";
 
 // ADR-001 씸 계약: 액션은 "인자 → lib 호출 → 결과 매핑" 래퍼로만 유지한다.
@@ -15,7 +16,9 @@ export async function startSessionAction(code: string): Promise<StartSessionResu
 }
 
 export type SubmitResult =
-  | { ok: true }
+  // applied: 이번 기록으로 생긴 조정(없으면 null). 카드가 재조회 없이 최신 사슬을 반영할 수 있게
+  // 서버가 기록한 것과 동일한 after/moves를 그대로 돌려준다(표시용 — 신뢰 원천은 어차피 서버).
+  | { ok: true; applied: { after: RecipeParams; moves: Move[] } | null }
   | {
       ok: false;
       reason: "invalid" | "incomplete" | "qr" | "session_not_found" | "already_recorded" | "unknown";
@@ -54,5 +57,11 @@ export async function submitFeedbackAction(
 
   const result = await recordFeedback(sessionId, derived.derivation, snapshots);
   if (!result.ok) return { ok: false, reason: result.reason };
-  return { ok: true };
+  return {
+    ok: true,
+    applied:
+      snapshots && prescription.kind === "adjust"
+        ? { after: snapshots.after, moves: prescription.moves }
+        : null,
+  };
 }
