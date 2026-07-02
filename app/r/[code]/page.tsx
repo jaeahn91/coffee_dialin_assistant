@@ -1,7 +1,8 @@
 import { headers } from "next/headers";
 import { recordPageView } from "@/lib/db/page-views";
 import { getRecipeByQrCode } from "@/lib/db/qr";
-import Flow, { type RecipeDisplay } from "./flow";
+import { describeMove } from "@/lib/domain/describe";
+import Flow, { type AdjustedParams, type RecipeDisplay } from "./flow";
 
 // QR 진입점(§5): 코드 해석 → 상태별 안내 or 흐름 시작. 항상 동적 렌더(코드별 페이지).
 
@@ -52,7 +53,24 @@ export default async function RecipePage({
     brew_time_min_s: resolved.recipe.brew_time_min_s,
     brew_time_max_s: resolved.recipe.brew_time_max_s,
     grind_text: resolved.recipe.grind_text,
+    grind_um: resolved.recipe.grind_um,
   };
 
-  return <Flow code={code} recipe={recipe} />;
+  // ADR-002: 물량·온도·도징은 사슬의 최신 after_snapshot을 절대값으로 표시.
+  // 분쇄도는 수정하지 않고 직전 조정의 분쇄 move만 권유 이력 한 줄로.
+  const last = resolved.lastAdjustment;
+  const adjusted: AdjustedParams | null = last
+    ? {
+        dose_g: last.after_snapshot.dose_g,
+        water_g: last.after_snapshot.water_g,
+        water_temp_c: last.after_snapshot.water_temp_c,
+      }
+    : null;
+  const grindAdvice =
+    last?.moves
+      .filter((m) => m.variable === "grind")
+      .map(describeMove)
+      .join(" + ") || null;
+
+  return <Flow code={code} recipe={recipe} adjusted={adjusted} grindAdvice={grindAdvice} />;
 }

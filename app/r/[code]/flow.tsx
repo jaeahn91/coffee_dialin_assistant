@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { describePrescription } from "@/lib/domain/describe";
 import { flowStep, type FlowInput, type FlowQuestion, type FlowResult } from "@/lib/domain/flow";
 import type { Prescription } from "@/lib/domain/types";
+import { UNSPECIALTY_COMPASS_URL } from "@/lib/config/links";
 import { startSessionAction, submitFeedbackAction, type SubmitResult } from "./actions";
 import type { StartSessionResult } from "@/lib/db/sessions";
 
@@ -20,6 +21,15 @@ export type RecipeDisplay = {
   brew_time_min_s: number | null;
   brew_time_max_s: number | null;
   grind_text: string | null;
+  grind_um: number | null;
+};
+
+// ADR-002: 재스캔 시 표시할 조정값(사슬 최신 after_snapshot). 분쇄도는 여기 없다 —
+// 수정값 대신 권유 이력(grindAdvice)으로 보여준다.
+export type AdjustedParams = {
+  dose_g: number | null;
+  water_g: number | null;
+  water_temp_c: number | null;
 };
 
 const PROMPT: Record<Exclude<FlowQuestion["id"], "intensity">, string> = {
@@ -64,21 +74,47 @@ function formatSeconds(s: number): string {
   return sec === 0 ? `${min}분` : `${min}분 ${sec}초`;
 }
 
-function recipeLines(r: RecipeDisplay): string[] {
-  const lines: string[] = [];
+// 조정값이 있고 기준과 다르면 "260g (기준 250g)" 형태로 병기(ADR-002).
+function numLine(
+  label: string,
+  unit: string,
+  base: number | null,
+  adjusted: number | null | undefined,
+): string | null {
+  const value = adjusted ?? base;
+  if (value === null) return null;
+  if (adjusted != null && base !== null && adjusted !== base)
+    return `${label} ${adjusted}${unit} (기준 ${base}${unit})`;
+  return `${label} ${value}${unit}`;
+}
+
+function recipeLines(r: RecipeDisplay, adj: AdjustedParams | null): string[] {
+  const lines: (string | null)[] = [];
   if (r.dripper) lines.push(r.dripper);
-  if (r.dose_g !== null) lines.push(`원두 ${r.dose_g}g`);
-  if (r.water_g !== null) lines.push(`물 ${r.water_g}g`);
-  if (r.water_temp_c !== null) lines.push(`물온도 ${r.water_temp_c}°C`);
+  lines.push(numLine("원두", "g", r.dose_g, adj?.dose_g));
+  lines.push(numLine("물", "g", r.water_g, adj?.water_g));
+  lines.push(numLine("물온도", "°C", r.water_temp_c, adj?.water_temp_c));
   if (r.brew_time_min_s !== null && r.brew_time_max_s !== null)
     lines.push(`추출 ${formatSeconds(r.brew_time_min_s)}~${formatSeconds(r.brew_time_max_s)}`);
   else if (r.brew_time_min_s !== null || r.brew_time_max_s !== null)
     lines.push(`추출 ${formatSeconds((r.brew_time_min_s ?? r.brew_time_max_s)!)}`);
-  if (r.grind_text) lines.push(`분쇄 ${r.grind_text}`);
-  return lines;
+  if (r.grind_text)
+    lines.push(`분쇄 ${r.grind_text}${r.grind_um !== null ? ` (약 ${r.grind_um}µm)` : ""}`);
+  else if (r.grind_um !== null) lines.push(`분쇄 약 ${r.grind_um}µm`);
+  return lines.filter((l): l is string => l !== null);
 }
 
-export default function Flow({ code, recipe }: { code: string; recipe: RecipeDisplay }) {
+export default function Flow({
+  code,
+  recipe,
+  adjusted,
+  grindAdvice,
+}: {
+  code: string;
+  recipe: RecipeDisplay;
+  adjusted: AdjustedParams | null;
+  grindAdvice: string | null;
+}) {
   const [input, setInput] = useState<FlowInput>({});
   const [history, setHistory] = useState<FlowInput[]>([]); // 한 단계씩 되돌리기용
   const [bailed, setBailed] = useState(false);
@@ -126,7 +162,7 @@ export default function Flow({ code, recipe }: { code: string; recipe: RecipeDis
   };
 
   const canGoBack = bailed || history.length > 0;
-  const lines = recipeLines(recipe);
+  const lines = recipeLines(recipe, adjusted);
 
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-5 py-10">
@@ -138,7 +174,9 @@ export default function Flow({ code, recipe }: { code: string; recipe: RecipeDis
       </header>
 
       <section className="rounded-xl border border-black/10 p-4 dark:border-white/15">
-        <p className="text-xs font-medium uppercase tracking-wide opacity-60">오늘의 추천 레시피</p>
+        <p className="text-xs font-medium uppercase tracking-wide opacity-60">
+          {adjusted ? "오늘의 추천 레시피 · 지난 피드백 반영" : "오늘의 추천 레시피"}
+        </p>
         <p className="mt-1 font-medium">{recipe.beanName}</p>
         {recipe.beanIntro && <p className="mt-1 text-sm opacity-70">{recipe.beanIntro}</p>}
         <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm opacity-80">
@@ -146,6 +184,17 @@ export default function Flow({ code, recipe }: { code: string; recipe: RecipeDis
             <div key={line}>{line}</div>
           ))}
         </dl>
+        {grindAdvice && (
+          <p className="mt-2 text-sm font-medium">지난번 권유: {grindAdvice}</p>
+        )}
+        <a
+          href={UNSPECIALTY_COMPASS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-block text-xs underline opacity-60 hover:opacity-90"
+        >
+          내 분쇄도 측정하기 (언스페셜티 나침반) ↗
+        </a>
       </section>
 
       {canGoBack && (

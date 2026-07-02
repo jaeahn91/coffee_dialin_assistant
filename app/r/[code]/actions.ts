@@ -2,7 +2,7 @@
 
 import { recordFeedback } from "@/lib/db/feedback";
 import { getRecipeByQrCode } from "@/lib/db/qr";
-import { startBrewSession, type StartSessionResult } from "@/lib/db/sessions";
+import { getSessionBaseline, startBrewSession, type StartSessionResult } from "@/lib/db/sessions";
 import { applyMoves, deriveFeedback, type RecipeParams } from "@/lib/server/derive";
 
 // ADR-001 씸 계약: 액션은 "인자 → lib 호출 → 결과 매핑" 래퍼로만 유지한다.
@@ -37,12 +37,15 @@ export async function submitFeedbackAction(
   const { prescription } = derived.derivation;
   let snapshots: { before: RecipeParams; after: RecipeParams } | null = null;
   if (prescription.kind === "adjust") {
-    const before: RecipeParams = {
+    // 사슬 누적(§8-5, ADR-002): before = 이 세션이 표시했던 레시피 = 직전 조정의
+    // after_snapshot(없으면 기준 레시피). temp reset의 기준점만 항상 활성 레시피.
+    const baseParams: RecipeParams = {
       dose_g: resolved.recipe.dose_g,
       water_g: resolved.recipe.water_g,
       water_temp_c: resolved.recipe.water_temp_c,
       grind_text: resolved.recipe.grind_text,
     };
+    const before = (await getSessionBaseline(sessionId)) ?? baseParams;
     snapshots = {
       before,
       after: applyMoves(before, prescription.moves, resolved.recipe.water_temp_c),

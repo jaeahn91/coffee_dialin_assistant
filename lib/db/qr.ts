@@ -1,14 +1,24 @@
+import type { Move } from "../domain/types";
+import type { RecipeParams } from "../server/derive";
 import { db } from "./client";
 import type { QrCodeRow, RecipeRow } from "./schema";
 
-// 계층의 첫 슬라이스: QR code → 원두 + 활성 레시피.
-// §5 흐름을 실제 레시피에 붙일 때(목업 RECIPE 교체)의 진입점. /r/[code] 라우트가 호출한다.
+// 계층의 첫 슬라이스: QR code → 원두 + 활성 레시피 + 사슬의 최신 조정(ADR-002).
+// /r/[code] 라우트가 호출해 status별 안내 페이지로 분기한다(§5 진입점).
+
+// 이 QR 사슬의 최신 조정. after_snapshot이 재스캔 시의 표시 레시피(§8-5).
+export type LastAdjustment = {
+  after_snapshot: RecipeParams;
+  moves: Move[];
+  created_at: string;
+};
 
 export type ResolvedRecipe = {
   qrId: string;
   roasterId: string;
   bean: { id: string; name: string; intro: string | null };
   recipe: RecipeRow;
+  lastAdjustment: LastAdjustment | null;
 };
 
 // 손님에게 다른 안내가 필요한 세 가지 실패를 구분한다:
@@ -32,18 +42,23 @@ export async function getRecipeByQrCode(code: string): Promise<QrResolution> {
   const qr = qrData as Pick<QrCodeRow, "id" | "roaster_id" | "bean_id" | "status">;
   if (qr.status !== "active") return { status: "void" };
 
-  const [{ data: beanData, error: beanErr }, { data: recipeData, error: recipeErr }] =
-    await Promise.all([
-      db.from("bean").select("id, name, intro").eq("id", qr.bean_id).maybeSingle(),
-      db
-        .from("recipe")
-        .select("*")
-        .eq("bean_id", qr.bean_id)
-        .eq("is_active", true)
-        .maybeSingle(),
-    ]);
+  const [
+    { data: beanData, error: beanErr },
+    { data: recipeData, error: recipeErr },
+    { data: lastAdjData, error: lastAdjErr },
+  ] = await Promise.all([
+    db.from("bean").select("id, name, intro").eq("id", qr.bean_id).maybeSingle(),
+    db
+      .from("recipe")
+      .select("*")
+      .eq("bean_id", qr.bean_id)
+      .eq("is_active", true)
+      .maybeSingle(),
+    db.rpc("latest_adjustment_for_qr", { p_qr_id: qr.id }),
+  ]);
   if (beanErr) throw beanErr;
   if (recipeErr) throw recipeErr;
+  if (lastAdjErr) throw lastAdjErr;
   if (!beanData || !recipeData) return { status: "not_ready" };
 
   return {
@@ -52,5 +67,6 @@ export async function getRecipeByQrCode(code: string): Promise<QrResolution> {
     roasterId: qr.roaster_id,
     bean: beanData as { id: string; name: string; intro: string | null },
     recipe: recipeData as RecipeRow,
+    lastAdjustment: (lastAdjData as LastAdjustment | null) ?? null,
   };
 }

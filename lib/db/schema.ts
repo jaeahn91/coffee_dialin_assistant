@@ -55,6 +55,7 @@ export type RecipeRow = {
   brew_time_min_s: number | null;
   brew_time_max_s: number | null;
   grind_text: string | null;
+  grind_um: number | null; // 기준 분쇄도(µm, 선택) — ADR-002
   pour_text: string | null;
   created_at: string;
 };
