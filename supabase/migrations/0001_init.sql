@@ -165,6 +165,17 @@ create table device_token (
   primary key (roaster_id, token)
 );
 
+-- 조회 이벤트(ADR-001 퍼널 원천, PRD §8 밖 보조 테이블): 스캔 → 세션(첫 답변) → 피드백(완료).
+-- 세션을 첫 답변 시 생성하므로 봇·링크 프리뷰는 여기까지만 남고 세션을 오염하지 않는다.
+create table page_view (
+  id         uuid primary key default gen_random_uuid(),
+  roaster_id uuid not null references roaster(id) on delete cascade,
+  qr_id      uuid not null,
+  user_agent text,                     -- 봇 필터링용(사후 분석)
+  viewed_at  timestamptz not null default now(),
+  foreign key (qr_id, roaster_id) references qr_code (id, roaster_id) on delete cascade
+);
+
 -- ─────────────────────────────────────────────────────────────
 -- 3. 인덱스 — §8-5 세션 사슬 조회(qr_id 1순위, device_token+bean 보조) + 테넌트 필터
 -- ─────────────────────────────────────────────────────────────
@@ -175,6 +186,7 @@ create index brew_session_qr_idx     on brew_session (qr_id, started_at);
 create index brew_session_device_idx on brew_session (roaster_id, device_token);
 create index feedback_roaster_idx    on feedback (roaster_id);
 create index adjustment_session_idx  on adjustment (session_id);
+create index page_view_qr_idx        on page_view (qr_id, viewed_at);
 
 -- ─────────────────────────────────────────────────────────────
 -- 4. RLS — 전 테이블 활성 + deny-by-default (정책 없음 = anon/authenticated 접근 0).
@@ -189,6 +201,7 @@ alter table brew_session enable row level security;
 alter table feedback     enable row level security;
 alter table adjustment   enable row level security;
 alter table device_token enable row level security;
+alter table page_view    enable row level security;
 
 -- 향후 로스터 대시보드(authenticated 직접 접근)용 정책 예시 — 지금은 미적용:
 --   create policy roaster_reads_own_beans on bean for select to authenticated
