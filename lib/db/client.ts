@@ -1,12 +1,9 @@
+import "server-only"; // 클라이언트 번들에 섞이면 빌드 자체가 실패한다
+
 import { createClient } from "@supabase/supabase-js";
 
 // 데이터 창고 출입구(§8-4). 서버 전용: service_role 키는 RLS를 우회하므로
 // 브라우저로 새면 전 테넌트 데이터가 열린다. 절대 클라이언트에서 import 금지.
-if (typeof window !== "undefined") {
-  throw new Error(
-    "lib/db/client는 서버에서만 import해야 합니다 (service_role 키 노출 위험).",
-  );
-}
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

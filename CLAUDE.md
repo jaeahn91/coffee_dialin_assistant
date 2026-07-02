@@ -17,7 +17,7 @@ AI 커피 다이얼인 어시스턴트. 로스터가 발급한 QR로 손님이 �
 ## 불변식 (깨지면 안 됨)
 - 모든 **방향성** 처방(분쇄 곱게/굵게, 물 늘림/줄임, 온도 up/down)은 시스템 어딘가에 역방향 경로가 있어야 한다(§6-3). 온도 `reset`만 예외.
 - §9: 처방 설명은 **고정 템플릿**. 생성형 텍스트 아님.
-- 이 불변식은 `lib/domain/invariants.test.ts`로 자동 검증된다 — **항상 green 유지**.
+- 이 불변식은 `lib/domain/invariants.test.ts`(§6-3)와 `lib/domain/describe.test.ts`(§9 템플릿 잠금)로 자동 검증된다 — **항상 green 유지**.
 
 ## 명령
 - `npm run dev` — 개발 서버
