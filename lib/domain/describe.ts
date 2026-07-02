@@ -22,7 +22,8 @@ export function describePrescription(p: Prescription): string {
     case "hold":
       return "지금 레시피를 그대로 유지하세요.";
     case "chatbot":
-      return "격자로 잡히지 않는 경우라, 맞춤 조정을 위해 몇 가지를 더 여쭤볼게요.";
+      // 챗봇은 아직 스텁 — 더 물어볼 것처럼 약속하지 않는다(격자 밖·도움 요청 두 진입점 공용 문구).
+      return "자동 조정 규칙 밖의 경우예요. 맞춤 상담 기능은 준비 중이에요 — 지금은 로스터리에 직접 문의해 주시면 가장 정확해요.";
     case "adjust":
       return p.moves.map(describeMove).join(" + ");
   }

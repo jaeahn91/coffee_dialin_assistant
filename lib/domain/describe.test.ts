@@ -47,7 +47,7 @@ describe("describePrescription — §9 고정 템플릿", () => {
 
   it("chatbot 문구 (reason과 무관하게 고정)", () => {
     expect(describePrescription({ kind: "chatbot", reason: "아무거나" })).toBe(
-      "격자로 잡히지 않는 경우라, 맞춤 조정을 위해 몇 가지를 더 여쭤볼게요.",
+      "자동 조정 규칙 밖의 경우예요. 맞춤 상담 기능은 준비 중이에요 — 지금은 로스터리에 직접 문의해 주시면 가장 정확해요.",
     );
   });
 

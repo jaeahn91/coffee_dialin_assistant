@@ -64,7 +64,7 @@ function resultHeading(p: Prescription): string {
     case "adjust":
       return "다음엔 이렇게 조정해 보세요";
     case "chatbot":
-      return "조금 더 여쭤볼게요";
+      return "자동 조정이 어려운 경우예요";
   }
 }
 
@@ -162,7 +162,9 @@ export default function Flow({
     setHistory((h) => h.slice(0, -1));
   };
 
-  const canGoBack = bailed || history.length > 0;
+  // 완료(기록됨) 화면에선 뒤로를 숨긴다 — 기록은 방문당 1회라 뒤로 가서 답을 바꿔도
+  // 재기록되지 않아 화면과 데이터가 어긋난다. "처음부터"만 남김(도움 화면의 뒤로는 유지).
+  const canGoBack = bailed || (result.kind === "ask" && history.length > 0);
   const lines = recipeLines(recipe, adjusted);
   // 붓기 텍스트는 박제(총량 조정을 모름) — 물량이 조정된 화면에선 어긋남을 힌트로 무마한다.
   const waterDelta =
