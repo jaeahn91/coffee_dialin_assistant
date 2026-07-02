@@ -57,7 +57,8 @@ export default async function RecipePage({
   };
 
   // ADR-002: 물량·온도·도징은 사슬의 최신 after_snapshot을 절대값으로 표시.
-  // 분쇄도는 수정하지 않고 직전 조정의 분쇄 move만 권유 이력 한 줄로.
+  // 분쇄도는 수치를 수정하지 않는다 — 대신 최근 솔루션(모든 move)을 §9 템플릿
+  // 한 줄로 보여준다. 물·온도는 숫자에도 반영되지만 "왜 바뀌었는지"의 설명을 겸한다.
   const last = resolved.lastAdjustment;
   const adjusted: AdjustedParams | null = last
     ? {
@@ -66,11 +67,7 @@ export default async function RecipePage({
         water_temp_c: last.after_snapshot.water_temp_c,
       }
     : null;
-  const grindAdvice =
-    last?.moves
-      .filter((m) => m.variable === "grind")
-      .map(describeMove)
-      .join(" + ") || null;
+  const lastSolution = last?.moves.map(describeMove).join(" + ") || null;
 
-  return <Flow code={code} recipe={recipe} adjusted={adjusted} grindAdvice={grindAdvice} />;
+  return <Flow code={code} recipe={recipe} adjusted={adjusted} lastSolution={lastSolution} />;
 }

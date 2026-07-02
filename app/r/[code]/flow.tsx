@@ -108,12 +108,12 @@ export default function Flow({
   code,
   recipe,
   adjusted,
-  grindAdvice,
+  lastSolution,
 }: {
   code: string;
   recipe: RecipeDisplay;
   adjusted: AdjustedParams | null;
-  grindAdvice: string | null;
+  lastSolution: string | null;
 }) {
   const [input, setInput] = useState<FlowInput>({});
   const [history, setHistory] = useState<FlowInput[]>([]); // 한 단계씩 되돌리기용
@@ -184,8 +184,8 @@ export default function Flow({
             <div key={line}>{line}</div>
           ))}
         </dl>
-        {grindAdvice && (
-          <p className="mt-2 text-sm font-medium">지난번 권유: {grindAdvice}</p>
+        {lastSolution && (
+          <p className="mt-2 text-sm font-medium">최근 솔루션: {lastSolution}</p>
         )}
         <a
           href={UNSPECIALTY_COMPASS_URL}
