@@ -3,7 +3,12 @@
 > 세션이 끊겨도 여기서 바로 이어받기 위한 메모. 끝난 항목은 지우거나 체크.
 
 ## 지금 할 일 (파일럿 임계 경로 순)
-- **QR 발급 도구**: base64url 21자 코드 N장 생성 + 인쇄용 QR 이미지(`qrcode` 패키지 후보). `scripts/seed-e2e.mjs`의 `newQrCode()`가 규격 구현체 — 발급 스크립트로 분리(대시보드는 Phase C).
+- **QR 발급 도구 — Plan 합의 대기 중 (2026-07-02 세션에서 제시, 확인 질문 2개 답 대기)**:
+  - `scripts/issue-qr.mjs`: `--bean <이름|uuid> --count N --base-url <url>`. pg 직결(db-apply 방식).
+  - 흐름: bean 검증(모호하면 후보 나열 중단)·count 1~500·base-url 필수(localhost면 테스트 경고 — URL은 인쇄되면 고정이라 사고 방지가 핵심) → 21자 base64url 코드 N개(`newQrCode()`를 공용 모듈로 승격, unique 충돌 시 재생성) 한 트랜잭션 insert → 산출물 `out/qr/<원두>_<시각>/`(gitignore): `codes.csv`(발급 대장), 코드별 PNG(오류정정 Q, 512px), 인쇄용 `sheet.html`.
+  - `--void <code...>` 폐기 모드 포함. devDep `qrcode`.
+  - 검증: 시드 원두 3장 발급 → PNG 디코드로 URL 일치 확인(디코더는 임시 설치) → dev 서버 렌더 → void 안내 확인 → 테스트분 정리.
+  - **확인 질문 ①** 스티커에 사람용 텍스트(원두명·코드 끝4자) 병기? (권장: 포함) **②** base-url 매번 명시 필수 vs env 기본값+확인 표시? (권장: 명시 필수)
 - **Vercel 배포**: QR에 인쇄될 URL 확정의 선행 조건. env 3종 설정.
 - **스타일링·카피 다듬기**: 도움받기 화면 카피("조금 더 여쭤볼게요"가 스텁과 불일치 — 검증 finding), 완료 화면 뒤로 버튼 노출 재검토.
 - **시드 데이터 정리**: 파일럿 시작 전 '시드 테스트 로스터리' 행 삭제(cascade로 전부 정리됨).
