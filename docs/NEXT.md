@@ -3,7 +3,6 @@
 > 세션이 끊겨도 여기서 바로 이어받기 위한 메모. 끝난 항목은 지우거나 체크.
 
 ## 지금 할 일 (파일럿 임계 경로 순)
-- **Vercel 배포**: QR에 인쇄될 URL 확정의 선행 조건. env 3종 설정.
 - **스타일링·카피 다듬기**: 도움받기 화면 카피("조금 더 여쭤볼게요"가 스텁과 불일치 — 검증 finding), 완료 화면 뒤로 버튼 노출 재검토.
 - **시드 데이터 정리**: 파일럿 시작 전 '시드 테스트 로스터리' 행 삭제(cascade로 전부 정리됨).
   중복분(시드 2회 실행으로 로스터·원두 2벌)은 2026-07-02에 정리했고 시드도 멱등화함 — 현재 1벌만 남음.
@@ -14,6 +13,7 @@
 
 ## 결정 메모
 - **QR URL 스킴**: `https://<도메인>/r/<code>`, `code`=추측불가 url-safe 토큰(봉지 유니크). roaster/bean은 URL에 안 박고 서버에서 해석(불투명 코드).
+- **프로덕션 URL (2026-07-02 배포)**: `https://coffee-dialin-assistant.vercel.app` — Vercel(crda 스코프, Hobby, GitHub 연동으로 main push마다 자동 배포). env는 `NEXT_PUBLIC_SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY` 2종만(`SUPABASE_DB_URL`은 로컬 스크립트 전용). 테스트 QR 발급 base-url은 이 주소, 실제 인쇄는 커스텀 도메인 구입 후.
 - **도메인**: 파일럿은 **Vercel 도메인 고정**. 실출시 시 변경 가능(옛 도메인 301 리다이렉트로 인쇄된 QR 구제). 커스텀 도메인 구매는 **실제 QR 인쇄 직전**에만 필요 — 임계경로 밖. 살 의향 있음.
 - **RLS 자세**: deny-by-default(전 테이블 RLS on, anon/authenticated 정책 없음=접근 0). 서버가 `service_role`로만 접근, `lib/db`가 `roaster_id` 강제(§8-4). Supabase 프로젝트 "자동 RLS" 옵션도 켜둠(보조).
 - **보안 리뷰 결정 (2026-07-02)**:
@@ -26,6 +26,7 @@
 - **알려진 취약점 경고(무시 중)**: `npm audit`의 postcss moderate 2건은 Next.js 내장 사본 문제. `audit fix --force`는 next를 9.x로 다운그레이드하므로 **절대 실행 금지** — Next 패치 릴리스 대기. 실위험 낮음(사용자 제어 CSS 없음).
 
 ## 완료됨
+- ✅ **Vercel 배포 + 프로덕션 검증 (2026-07-02)** — `https://coffee-dialin-assistant.vercel.app`. 검증 실주행: 랜딩·시드 QR(사슬 조정값 표시)·미존재 코드 안내 렌더, 프로덕션발 page_view 기록 확인, Playwright로 괜찮아요 경로 완주 → grid(sour/strong) 피드백·조정이 사슬로 기록(before 270 → after 280, §8-5 정합). 가입 중 이슈 2건: GitHub App 레포 접근 권한이 1개 레포로 제한돼 있던 것(→ 전체 허용), 다른 레포 오도입(→ 프로젝트 삭제 후 재Import).
 - ✅ **QR 발급 도구 (2026-07-02)** — `scripts/issue-qr.mjs`. 발급: `node --env-file=.env.local scripts/issue-qr.mjs --bean <이름|uuid> --count N --base-url <url>` / 폐기: `--void <code>`(복수 가능, `-`로 시작하는 코드는 `--void=<code>`). 확인 질문 2개는 권장안 채택: 스티커에 원두명·코드 끝4자 병기 ○, base-url 매번 명시 필수 ○(localhost/사설IP면 테스트 경고). 산출물 `out/qr/<원두>_<시각>/`(gitignore): codes.csv(BOM, 발급 대장)·코드별 PNG(오류정정 Q·512px)·인쇄용 sheet.html(40mm 격자, 인쇄 전 URL 확인 헤더). `newQrCode()`는 `scripts/lib/qr-token.mjs`로 승격(seed와 공유). 검증 실주행: 3장 발급→PNG 디코드 대장 일치→dev 렌더→void 안내→오류 경로 7종(모호 원두 후보 나열 포함)→테스트분 DB/파일 정리. devDep `qrcode`. **부수 수리**: 시드 스크립트 비멱등 버그(roaster insert-first) 수정 + 중복 시드 1벌 삭제.
 - ✅ **재스캔 조정 반영 + 분쇄도 표현 결정 (2026-07-02, ADR-002)** — 분쇄도는 수정값이 아니라 권유 이력으로 표시(자기교정 비대칭 근거), 물·온도·도징은 after_snapshot 절대값 표시(기준 병기). `recipe.grind_um` 선택 병기 + 언스페셜티 나침반 링크(0003 적용됨, `latest_adjustment_for_qr` 읽기 RPC). **사슬 누적 수정**: before_snapshot = 직전 조정의 after_snapshot(§8-5 정합) — 브라우저 클릭 주행으로 250→260→270 누적 검증.
 - ✅ **마이그레이션 적용 + E2E 실주행 (2026-07-02)** — PostgreSQL 17.6에 0001+0002 적용(`scripts/db-apply.mjs`, SUPABASE_DB_URL 경유). `scripts/seed-e2e.mjs`로 RPC 10개 검증 전부 통과: §8-5 사슬 연결, 원자 기록, hold는 조정 없음, 중복 차단, 일일 상한, 미존재 코드 거절, **복합 FK 교차 테넌트 차단 실증**. dev 서버로 랜딩/실QR(시드 데이터 렌더)/미존재 3상태 + page_view 기록 확인. devDep `pg` 추가.
