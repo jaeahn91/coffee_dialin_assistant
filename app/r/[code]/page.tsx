@@ -54,6 +54,7 @@ export default async function RecipePage({
     brew_time_max_s: resolved.recipe.brew_time_max_s,
     grind_text: resolved.recipe.grind_text,
     grind_um: resolved.recipe.grind_um,
+    pour_text: resolved.recipe.pour_text,
   };
 
   // ADR-002: 물량·온도·도징은 사슬의 최신 after_snapshot을 절대값으로 표시.

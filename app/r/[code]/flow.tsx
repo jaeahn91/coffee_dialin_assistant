@@ -22,6 +22,7 @@ export type RecipeDisplay = {
   brew_time_max_s: number | null;
   grind_text: string | null;
   grind_um: number | null;
+  pour_text: string | null;
 };
 
 // ADR-002: 재스캔 시 표시할 조정값(사슬 최신 after_snapshot). 분쇄도는 여기 없다 —
@@ -184,6 +185,11 @@ export default function Flow({
             <div key={line}>{line}</div>
           ))}
         </dl>
+        {recipe.pour_text && (
+          <p className="mt-2 whitespace-pre-line border-t border-black/5 pt-2 text-sm opacity-80 dark:border-white/10">
+            {recipe.pour_text}
+          </p>
+        )}
         {lastSolution && (
           <p className="mt-2 text-sm font-medium">최근 솔루션: {lastSolution}</p>
         )}
