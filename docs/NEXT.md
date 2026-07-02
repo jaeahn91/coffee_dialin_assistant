@@ -3,15 +3,10 @@
 > 세션이 끊겨도 여기서 바로 이어받기 위한 메모. 끝난 항목은 지우거나 체크.
 
 ## 지금 할 일 (파일럿 임계 경로 순)
-- **QR 발급 도구 — Plan 합의 대기 중 (2026-07-02 세션에서 제시, 확인 질문 2개 답 대기)**:
-  - `scripts/issue-qr.mjs`: `--bean <이름|uuid> --count N --base-url <url>`. pg 직결(db-apply 방식).
-  - 흐름: bean 검증(모호하면 후보 나열 중단)·count 1~500·base-url 필수(localhost면 테스트 경고 — URL은 인쇄되면 고정이라 사고 방지가 핵심) → 21자 base64url 코드 N개(`newQrCode()`를 공용 모듈로 승격, unique 충돌 시 재생성) 한 트랜잭션 insert → 산출물 `out/qr/<원두>_<시각>/`(gitignore): `codes.csv`(발급 대장), 코드별 PNG(오류정정 Q, 512px), 인쇄용 `sheet.html`.
-  - `--void <code...>` 폐기 모드 포함. devDep `qrcode`.
-  - 검증: 시드 원두 3장 발급 → PNG 디코드로 URL 일치 확인(디코더는 임시 설치) → dev 서버 렌더 → void 안내 확인 → 테스트분 정리.
-  - **확인 질문 ①** 스티커에 사람용 텍스트(원두명·코드 끝4자) 병기? (권장: 포함) **②** base-url 매번 명시 필수 vs env 기본값+확인 표시? (권장: 명시 필수)
 - **Vercel 배포**: QR에 인쇄될 URL 확정의 선행 조건. env 3종 설정.
 - **스타일링·카피 다듬기**: 도움받기 화면 카피("조금 더 여쭤볼게요"가 스텁과 불일치 — 검증 finding), 완료 화면 뒤로 버튼 노출 재검토.
 - **시드 데이터 정리**: 파일럿 시작 전 '시드 테스트 로스터리' 행 삭제(cascade로 전부 정리됨).
+  중복분(시드 2회 실행으로 로스터·원두 2벌)은 2026-07-02에 정리했고 시드도 멱등화함 — 현재 1벌만 남음.
 - **파일럿 로스터 확인 항목**: 언스페셜티 링크 노출 동의, §9 템플릿 참조 그라인더 힌트, 조정 후 µm 목표 병기 여부 (ADR-002 이연 목록).
 - **재스캔 시 직전 조정 반영 표시**: 세션 사슬의 after_snapshot을 표시 레시피에 반영(§8-5). 현재는 항상 기준 레시피 표시(ADR-001 알려진 한계).
 - **챗봇 폴백 스텁** (§9 경계 — 룰은 AI 호출 안 함). 현재는 안내 문구만. bail 중도이탈 기록도 이때 재검토.
@@ -31,6 +26,7 @@
 - **알려진 취약점 경고(무시 중)**: `npm audit`의 postcss moderate 2건은 Next.js 내장 사본 문제. `audit fix --force`는 next를 9.x로 다운그레이드하므로 **절대 실행 금지** — Next 패치 릴리스 대기. 실위험 낮음(사용자 제어 CSS 없음).
 
 ## 완료됨
+- ✅ **QR 발급 도구 (2026-07-02)** — `scripts/issue-qr.mjs`. 발급: `node --env-file=.env.local scripts/issue-qr.mjs --bean <이름|uuid> --count N --base-url <url>` / 폐기: `--void <code>`(복수 가능, `-`로 시작하는 코드는 `--void=<code>`). 확인 질문 2개는 권장안 채택: 스티커에 원두명·코드 끝4자 병기 ○, base-url 매번 명시 필수 ○(localhost/사설IP면 테스트 경고). 산출물 `out/qr/<원두>_<시각>/`(gitignore): codes.csv(BOM, 발급 대장)·코드별 PNG(오류정정 Q·512px)·인쇄용 sheet.html(40mm 격자, 인쇄 전 URL 확인 헤더). `newQrCode()`는 `scripts/lib/qr-token.mjs`로 승격(seed와 공유). 검증 실주행: 3장 발급→PNG 디코드 대장 일치→dev 렌더→void 안내→오류 경로 7종(모호 원두 후보 나열 포함)→테스트분 DB/파일 정리. devDep `qrcode`. **부수 수리**: 시드 스크립트 비멱등 버그(roaster insert-first) 수정 + 중복 시드 1벌 삭제.
 - ✅ **재스캔 조정 반영 + 분쇄도 표현 결정 (2026-07-02, ADR-002)** — 분쇄도는 수정값이 아니라 권유 이력으로 표시(자기교정 비대칭 근거), 물·온도·도징은 after_snapshot 절대값 표시(기준 병기). `recipe.grind_um` 선택 병기 + 언스페셜티 나침반 링크(0003 적용됨, `latest_adjustment_for_qr` 읽기 RPC). **사슬 누적 수정**: before_snapshot = 직전 조정의 after_snapshot(§8-5 정합) — 브라우저 클릭 주행으로 250→260→270 누적 검증.
 - ✅ **마이그레이션 적용 + E2E 실주행 (2026-07-02)** — PostgreSQL 17.6에 0001+0002 적용(`scripts/db-apply.mjs`, SUPABASE_DB_URL 경유). `scripts/seed-e2e.mjs`로 RPC 10개 검증 전부 통과: §8-5 사슬 연결, 원자 기록, hold는 조정 없음, 중복 차단, 일일 상한, 미존재 코드 거절, **복합 FK 교차 테넌트 차단 실증**. dev 서버로 랜딩/실QR(시드 데이터 렌더)/미존재 3상태 + page_view 기록 확인. devDep `pg` 추가.
 - ✅ **쓰기 경로 B+ 구현 (2026-07-02, ADR-001)** — `docs/ADR-001_write-path.md`(결정·트리거·씸 계약·보류 목록). `0002_rpc.sql`(start_brew_session·record_feedback, 원자 기록+사슬+상한, anon 실행권한 회수), `0001`에 `page_view` 추가(퍼널 1단). `lib/server/derive.ts`(zod+flowStep 서버 재주행, 경로 밖 필드 무시, applyMoves 스냅샷) + 테스트 12. `lib/db` sessions/feedback/page-views. `app/r/[code]/`(서버 페이지+상태별 안내, Flow 클라이언트, 얇은 액션 2개). 루트는 랜딩으로 교체. dep `zod`. 테스트 35, 빌드 통과. **DB 미적용이라 RPC는 실행 미검증**.

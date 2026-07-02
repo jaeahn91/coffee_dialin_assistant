@@ -29,6 +29,7 @@
     "eslint-config-next": "16.2.9",
     "husky": "^9.1.7",
     "pg": "^8.22.0",
+    "qrcode": "^1.5.4",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.9"

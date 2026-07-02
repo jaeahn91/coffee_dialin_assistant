@@ -2,14 +2,11 @@
 // - 시드: 테스트 로스터/원두/레시피(재사용) + 매 실행마다 새 QR(새 사슬 → 단정 결정적)
 // - E2E: 0002 RPC를 실제로 주행하며 §8-5 사슬·상한·중복 방지·복합 FK 테넌트 차단을 검증.
 //   payload 값은 lib/server/derive 단위 테스트가 검증한 도출 결과를 그대로 미러링한다.
-import { randomBytes } from "node:crypto";
 import pg from "pg";
+import { newQrCode } from "./lib/qr-token.mjs";
 
 const dbUrl = process.env.SUPABASE_DB_URL;
 if (!dbUrl) throw new Error("SUPABASE_DB_URL 필요 (.env.local)");
-
-// QR 토큰 규격(보안 리뷰 결정): crypto 기반 base64url 21자(≈126비트)
-const newQrCode = () => randomBytes(16).toString("base64url").slice(0, 21);
 
 let failed = 0;
 const check = (cond, label) => {
@@ -30,11 +27,12 @@ await c.connect();
 try {
   // ── 시드 (재사용 가능) ──────────────────────────────────
   console.log("시드:");
+  // select-first(멱등): roaster.name엔 unique 제약이 없어 on conflict가 절대 발화하지 않는다
+  // — insert-first였던 초기 버전이 실행마다 로스터를 중복 생성했던 원인.
   const roaster = (await c.query(
-    `insert into roaster (name) values ('시드 테스트 로스터리')
-     on conflict do nothing returning id`,
+    `select id from roaster where name = '시드 테스트 로스터리' order by created_at limit 1`,
   )).rows[0]?.id ?? (await c.query(
-    `select id from roaster where name = '시드 테스트 로스터리'`,
+    `insert into roaster (name) values ('시드 테스트 로스터리') returning id`,
   )).rows[0].id;
 
   let bean = (await c.query(
