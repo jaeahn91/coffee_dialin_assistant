@@ -1,10 +1,17 @@
 "use server";
 
+import { GRIND_HISTORY_DEPTH } from "@/lib/config/adjustment-limits";
+import { recentMovesForQr } from "@/lib/db/adjustments";
 import { recordFeedback } from "@/lib/db/feedback";
 import { getRecipeByQrCode } from "@/lib/db/qr";
 import { getSessionBaseline, startBrewSession, type StartSessionResult } from "@/lib/db/sessions";
 import type { Move } from "@/lib/domain/types";
-import { applyMoves, deriveFeedback, type RecipeParams } from "@/lib/server/derive";
+import {
+  applyMoves,
+  deriveFeedback,
+  type LimitedVariable,
+  type RecipeParams,
+} from "@/lib/server/derive";
 
 // ADR-001 씸 계약: 액션은 "인자 → lib 호출 → 결과 매핑" 래퍼로만 유지한다.
 // 로직이 자라면 lib/server 또는 lib/db로 내린다.
@@ -18,7 +25,8 @@ export async function startSessionAction(code: string): Promise<StartSessionResu
 export type SubmitResult =
   // applied: 이번 기록으로 생긴 조정(없으면 null). 카드가 재조회 없이 최신 사슬을 반영할 수 있게
   // 서버가 기록한 것과 동일한 after/moves를 그대로 돌려준다(표시용 — 신뢰 원천은 어차피 서버).
-  | { ok: true; applied: { after: RecipeParams; moves: Move[] } | null }
+  // limited: 경계 가드(ADR-003)가 무효화한 변수 — 화면은 고정 문구(LIMIT_NOTICES)로 안내.
+  | { ok: true; applied: { after: RecipeParams; moves: Move[]; limited: LimitedVariable[] } | null }
   | {
       ok: false;
       reason: "invalid" | "incomplete" | "qr" | "session_not_found" | "already_recorded" | "unknown";
@@ -38,30 +46,38 @@ export async function submitFeedbackAction(
   if (resolved.status !== "ok") return { ok: false, reason: "qr" };
 
   const { prescription } = derived.derivation;
-  let snapshots: { before: RecipeParams; after: RecipeParams } | null = null;
+  let adjustment: { before: RecipeParams; after: RecipeParams; moves: Move[] } | null = null;
+  let limited: LimitedVariable[] = [];
   if (prescription.kind === "adjust") {
     // 사슬 누적(§8-5, ADR-002): before = 이 세션이 표시했던 레시피 = 직전 조정의
-    // after_snapshot(없으면 기준 레시피). temp reset의 기준점만 항상 활성 레시피.
+    // after_snapshot(없으면 기준 레시피). temp reset·경계의 기준점만 항상 활성 레시피.
     const baseParams: RecipeParams = {
       dose_g: resolved.recipe.dose_g,
       water_g: resolved.recipe.water_g,
       water_temp_c: resolved.recipe.water_temp_c,
       grind_text: resolved.recipe.grind_text,
     };
-    const before = (await getSessionBaseline(sessionId)) ?? baseParams;
-    snapshots = {
+    const [baseline, grindHistory] = await Promise.all([
+      getSessionBaseline(sessionId),
+      recentMovesForQr(resolved.qrId, GRIND_HISTORY_DEPTH),
+    ]);
+    const before = baseline ?? baseParams;
+    const guarded = applyMoves(
       before,
-      after: applyMoves(before, prescription.moves, resolved.recipe.water_temp_c),
-    };
+      prescription.moves,
+      { tempC: resolved.recipe.water_temp_c, waterG: resolved.recipe.water_g },
+      grindHistory,
+    );
+    adjustment = { before, after: guarded.after, moves: guarded.moves };
+    limited = guarded.limited;
   }
 
-  const result = await recordFeedback(sessionId, derived.derivation, snapshots);
+  const result = await recordFeedback(sessionId, derived.derivation, adjustment);
   if (!result.ok) return { ok: false, reason: result.reason };
   return {
     ok: true,
-    applied:
-      snapshots && prescription.kind === "adjust"
-        ? { after: snapshots.after, moves: prescription.moves }
-        : null,
+    applied: adjustment
+      ? { after: adjustment.after, moves: adjustment.moves, limited }
+      : null,
   };
 }

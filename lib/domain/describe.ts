@@ -17,6 +17,14 @@ export function describeMove(m: Move): string {
   }
 }
 
+// 경계 가드(ADR-003): 조정이 안전 한계에 닿으면 해당 변수의 조정 대신 이 고정 문구를
+// 보여준다. 챗봇으로 넘기지 않는다(반복성 동작에 AI 비용을 쓰지 않음 — §9 경계 유지).
+export const LIMIT_NOTICES: Record<"grind" | "water" | "temp", string> = {
+  grind: "분쇄도는 이미 충분히 조정했어요. 그래도 아쉬우면 로스터리에 문의해 주세요.",
+  water: "물 양은 이미 충분히 조정했어요. 그래도 아쉬우면 로스터리에 문의해 주세요.",
+  temp: "물온도는 이미 충분히 조정했어요. 그래도 아쉬우면 로스터리에 문의해 주세요.",
+};
+
 export function describePrescription(p: Prescription): string {
   switch (p.kind) {
     case "hold":

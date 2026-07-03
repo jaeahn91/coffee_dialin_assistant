@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeMove, describePrescription } from "./describe";
+import { describeMove, describePrescription, LIMIT_NOTICES } from "./describe";
 import { allSystemMoves } from "./invariants";
 import type { Move, Prescription } from "./types";
 
@@ -48,6 +48,18 @@ describe("describePrescription — §9 고정 템플릿", () => {
   it("chatbot 문구 (reason과 무관하게 고정)", () => {
     expect(describePrescription({ kind: "chatbot", reason: "아무거나" })).toBe(
       "자동 조정 규칙 밖의 경우예요. 맞춤 상담 기능은 준비 중이에요 — 지금은 로스터리에 직접 문의해 주시면 가장 정확해요.",
+    );
+  });
+
+  it("경계 도달 고정 문구(ADR-003)가 표와 일치한다", () => {
+    expect(LIMIT_NOTICES.grind).toBe(
+      "분쇄도는 이미 충분히 조정했어요. 그래도 아쉬우면 로스터리에 문의해 주세요.",
+    );
+    expect(LIMIT_NOTICES.water).toBe(
+      "물 양은 이미 충분히 조정했어요. 그래도 아쉬우면 로스터리에 문의해 주세요.",
+    );
+    expect(LIMIT_NOTICES.temp).toBe(
+      "물온도는 이미 충분히 조정했어요. 그래도 아쉬우면 로스터리에 문의해 주세요.",
     );
   });
 

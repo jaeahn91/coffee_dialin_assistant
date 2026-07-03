@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { describeMove, describePrescription } from "@/lib/domain/describe";
+import { describeMove, describePrescription, LIMIT_NOTICES } from "@/lib/domain/describe";
 import { flowStep, type FlowInput, type FlowQuestion, type FlowResult } from "@/lib/domain/flow";
-import type { Prescription } from "@/lib/domain/types";
+import type { Move, Prescription } from "@/lib/domain/types";
 import { UNSPECIALTY_COMPASS_URL } from "@/lib/config/links";
 import { startSessionAction, submitFeedbackAction, type SubmitResult } from "./actions";
 import type { StartSessionResult } from "@/lib/db/sessions";
+import type { LimitedVariable } from "@/lib/server/derive";
 
 // §5 흐름 UI (클라이언트). 질문 진행은 lib/domain/flow의 순수 상태머신을 재호출할 뿐이고,
 // 기록은 서버 액션이 담당한다(ADR-001: 세션은 첫 답변 시 생성, 기록은 완주 시 1회).
@@ -68,6 +69,27 @@ function resultHeading(p: Prescription): string {
   }
 }
 
+// 서버가 기록을 마친 조정의 확정본. 경계 가드(ADR-003)로 클라이언트 계산과 달라질 수
+// 있어, 도착하면 결과 화면을 이것으로 갈아끼운다(무효화된 move 제거 + 고정 문구).
+type ServerOutcome = { moves: Move[]; limited: LimitedVariable[] };
+
+function resultPanel(
+  p: Prescription,
+  outcome: ServerOutcome | null,
+): { heading: string; body: string | null; notices: string[] } {
+  if (p.kind === "adjust" && outcome) {
+    const body = outcome.moves.length
+      ? outcome.moves.map(describeMove).join(" + ")
+      : null;
+    return {
+      heading: body ? resultHeading(p) : "자동 조정이 한계에 닿았어요",
+      body,
+      notices: outcome.limited.map((v) => LIMIT_NOTICES[v]),
+    };
+  }
+  return { heading: resultHeading(p), body: describePrescription(p), notices: [] };
+}
+
 function formatSeconds(s: number): string {
   const min = Math.floor(s / 60);
   const sec = s % 60;
@@ -121,7 +143,13 @@ export default function Flow({
   const [bailed, setBailed] = useState(false);
   // 이번 방문에서 기록된 조정 — 완주 직후부터 카드가 최신 사슬을 보여준다("처음부터"로
   // 돌아와도 유지). 서버 응답의 after/moves를 그대로 반영하므로 페이지 재조회와 동치.
-  const [live, setLive] = useState<{ adjusted: AdjustedParams; lastSolution: string } | null>(null);
+  // lastSolution이 null이면(전부 경계 무효화) 직전 값을 유지한다 — 이번엔 바뀐 게 없다.
+  const [live, setLive] = useState<{
+    adjusted: AdjustedParams;
+    lastSolution: string | null;
+  } | null>(null);
+  // 결과 화면용 서버 확정본 — "처음부터"로 리셋되면 비운다(재완주는 기록되지 않으므로).
+  const [outcome, setOutcome] = useState<ServerOutcome | null>(null);
 
   // 세션은 첫 답변 시 1회 시작(ADR-001). 기록도 방문당 1회 — "처음부터"는 UI만 리셋.
   const sessionRef = useRef<Promise<StartSessionResult> | null>(null);
@@ -139,15 +167,19 @@ export default function Flow({
       if (!session?.ok) return; // 세션이 없으면 기록만 생략 — 처방 안내는 그대로
       const r: SubmitResult = await submitFeedbackAction(code, session.sessionId, input);
       if (!r.ok) console.error("피드백 기록 실패:", r.reason);
-      else if (r.applied)
+      else if (r.applied) {
+        setOutcome({ moves: r.applied.moves, limited: r.applied.limited });
         setLive({
           adjusted: {
             dose_g: r.applied.after.dose_g,
             water_g: r.applied.after.water_g,
             water_temp_c: r.applied.after.water_temp_c,
           },
-          lastSolution: r.applied.moves.map(describeMove).join(" + "),
+          lastSolution: r.applied.moves.length
+            ? r.applied.moves.map(describeMove).join(" + ")
+            : null,
         });
+      }
     })();
   }, [result.kind, bailed, code, input]);
 
@@ -155,6 +187,7 @@ export default function Flow({
     setInput({});
     setHistory([]);
     setBailed(false);
+    setOutcome(null);
   };
 
   // 옵션 값은 flowStep이 내어준 것이라 항상 유효 — 표현 글루라서 캐스팅 허용.
@@ -177,6 +210,7 @@ export default function Flow({
   // 완료(기록됨) 화면에선 뒤로를 숨긴다 — 기록은 방문당 1회라 뒤로 가서 답을 바꿔도
   // 재기록되지 않아 화면과 데이터가 어긋난다. "처음부터"만 남김(도움 화면의 뒤로는 유지).
   const canGoBack = bailed || (result.kind === "ask" && history.length > 0);
+  const panel = result.kind === "ask" ? null : resultPanel(result.prescription, outcome);
   const effAdjusted = live?.adjusted ?? adjusted;
   const effSolution = live?.lastSolution ?? lastSolution;
   const lines = recipeLines(recipe, effAdjusted);
@@ -262,9 +296,15 @@ export default function Flow({
           </button>
         </section>
       ) : (
+        panel && (
         <section className="flex flex-col gap-3 rounded-xl bg-black/[0.03] p-5 dark:bg-white/[0.06]">
-          <h2 className="font-semibold">{resultHeading(result.prescription)}</h2>
-          <p className="text-lg">{describePrescription(result.prescription)}</p>
+          <h2 className="font-semibold">{panel.heading}</h2>
+          {panel.body && <p className="text-lg">{panel.body}</p>}
+          {panel.notices.map((n) => (
+            <p key={n} className="text-sm opacity-80">
+              {n}
+            </p>
+          ))}
           <button
             onClick={reset}
             className="mt-2 self-start rounded-lg border border-black/15 px-4 py-2 text-sm hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
@@ -272,6 +312,7 @@ export default function Flow({
             처음부터
           </button>
         </section>
+        )
       )}
     </main>
   );

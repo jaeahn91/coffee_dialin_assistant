@@ -1,8 +1,17 @@
 import { z } from "zod";
 import { flowStep, type FlowInput } from "../domain/flow";
-import type { Move, Prescription } from "../domain/types";
+import type { GrindMove, Move, Prescription } from "../domain/types";
 import type { FeedbackPath } from "../db/schema";
-import { ADJUSTMENT_STEPS } from "../config/adjustment-steps";
+import {
+  ADJUSTMENT_STEPS,
+  WATER_STEP_DOSE_RATIO,
+  WATER_STEP_FALLBACK_G,
+} from "../config/adjustment-steps";
+import {
+  GRIND_RUN_LIMIT,
+  TEMP_LIMIT_C,
+  WATER_LIMIT_FRACTION,
+} from "../config/adjustment-limits";
 
 // ADR-001: 클라이언트가 계산한 처방은 신뢰하지 않는다. 답변(FlowInput)만 받아
 // 서버에서 flowStep을 재실행해 경로·처방을 도출한다. 이 파일은 순수(도메인+설정만
@@ -102,23 +111,114 @@ export type RecipeParams = {
   grind_text: string | null;
 };
 
-// moves를 수치 적용해 after_snapshot을 만든다. 분쇄는 표현 방식 [미결정](§6-4)이라
-// 수치 적용을 보류하고 moves에 기호로만 남는다. temp reset은 기준(활성 레시피) 온도로.
+// 경계 가드가 무효화한 변수 — 화면에서 LIMIT_NOTICES[변수] 고정 문구로 안내한다.
+export type LimitedVariable = "grind" | "water" | "temp";
+
+export type GuardedApply = {
+  after: RecipeParams;
+  moves: Move[]; // 실제 채택된 move(기록·표시용). 경계에서 무효화된 move는 빠진다.
+  limited: LimitedVariable[];
+};
+
+// 사슬(최신순 moves 이력)의 끝쪽 같은 방향 분쇄 권유 런. 분쇄가 아닌 조정은 런을 끊지
+// 않는다(그라인더 위치는 그대로) — 반대 방향 분쇄 권유가 나와야 런이 끝난다(ADR-003).
+// 격자·트리는 처방당 분쇄 move를 최대 1개만 내므로 find로 충분하다.
+export function trailingGrindRun(
+  history: Move[][],
+): { direction: GrindMove["direction"]; length: number } | null {
+  let direction: GrindMove["direction"] | null = null;
+  let length = 0;
+  for (const moves of history) {
+    const g = moves.find((m): m is GrindMove => m.variable === "grind");
+    if (!g) continue;
+    if (direction === null) {
+      direction = g.direction;
+      length = 1;
+    } else if (g.direction === direction) {
+      length += 1;
+    } else {
+      break;
+    }
+  }
+  return direction === null ? null : { direction, length };
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+// moves를 수치 적용해 after_snapshot을 만들되, 경계 가드(ADR-003)를 강제한다:
+//   온도 — 절대 80~100°C 클램프(스텝이 경계를 넘으면 경계값까지만, 이미 경계면 무효화).
+//   물량 — 스텝 = 원두량 × 비율(1:15 → 1:15.5), 경계 = 기준(활성 레시피) 물량 ±20%.
+//   분쇄 — 수치 적용은 계속 보류(§6-4 미결정, ADR-002). 대신 사슬에서 같은 방향 권유가
+//          GRIND_RUN_LIMIT회 연속이면 무효화(µm 경계의 횟수 근사).
+// temp reset은 기준점 복귀형이라 경계와 무관. 역방향 move는 경계에서도 항상 허용되므로
+// 거울상 불변식(§6-3)은 유지된다.
 export function applyMoves(
   before: RecipeParams,
   moves: Move[],
-  baseTempC: number | null,
-): RecipeParams {
+  base: { tempC: number | null; waterG: number | null },
+  grindHistory: Move[][], // 이 QR 사슬의 최근 moves, 최신순
+): GuardedApply {
   const after = { ...before };
+  const adopted: Move[] = [];
+  const limited: LimitedVariable[] = [];
+  const run = trailingGrindRun(grindHistory);
+
   for (const m of moves) {
-    const step = ADJUSTMENT_STEPS[m.variable][m.magnitude];
-    if (m.variable === "water" && after.water_g !== null) {
-      after.water_g += m.direction === "more" ? step : -step;
-    } else if (m.variable === "temp") {
-      if (m.direction === "reset") after.water_temp_c = baseTempC;
-      else if (after.water_temp_c !== null)
-        after.water_temp_c += m.direction === "up" ? step : -step;
+    if (m.variable === "grind") {
+      if (run && run.direction === m.direction && run.length >= GRIND_RUN_LIMIT) {
+        limited.push("grind");
+      } else {
+        adopted.push(m); // 수치 미적용 — 기호로만 남는다
+      }
+      continue;
+    }
+
+    if (m.variable === "water") {
+      if (after.water_g === null) {
+        adopted.push(m); // 수치 미상 — 기호만 기록(기존 동작 유지)
+        continue;
+      }
+      const step =
+        before.dose_g !== null
+          ? before.dose_g * WATER_STEP_DOSE_RATIO[m.magnitude]
+          : WATER_STEP_FALLBACK_G[m.magnitude];
+      const target = after.water_g + (m.direction === "more" ? step : -step);
+      const next = round1(
+        base.waterG === null
+          ? target
+          : Math.min(
+              Math.max(target, base.waterG * (1 - WATER_LIMIT_FRACTION)),
+              base.waterG * (1 + WATER_LIMIT_FRACTION),
+            ),
+      );
+      if (next === after.water_g) {
+        limited.push("water");
+      } else {
+        after.water_g = next;
+        adopted.push(m);
+      }
+      continue;
+    }
+
+    // temp
+    if (m.direction === "reset") {
+      after.water_temp_c = base.tempC;
+      adopted.push(m);
+      continue;
+    }
+    if (after.water_temp_c === null) {
+      adopted.push(m); // 수치 미상 — 기호만 기록(기존 동작 유지)
+      continue;
+    }
+    const step = ADJUSTMENT_STEPS.temp[m.magnitude];
+    const target = after.water_temp_c + (m.direction === "up" ? step : -step);
+    const next = Math.min(Math.max(target, TEMP_LIMIT_C.min), TEMP_LIMIT_C.max);
+    if (next === after.water_temp_c) {
+      limited.push("temp");
+    } else {
+      after.water_temp_c = next;
+      adopted.push(m);
     }
   }
-  return after;
+  return { after, moves: adopted, limited };
 }
