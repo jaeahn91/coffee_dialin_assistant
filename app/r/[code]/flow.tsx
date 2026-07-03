@@ -76,7 +76,7 @@ type ServerOutcome = { moves: Move[]; limited: LimitedVariable[] };
 function resultPanel(
   p: Prescription,
   outcome: ServerOutcome | null,
-): { heading: string; body: string | null; notices: string[] } {
+): { heading: string; body: string | null; notices: string[]; tone: "positive" | "accent" | "neutral" } {
   if (p.kind === "adjust" && outcome) {
     const body = outcome.moves.length
       ? outcome.moves.map(describeMove).join(" + ")
@@ -85,10 +85,22 @@ function resultPanel(
       heading: body ? resultHeading(p) : "자동 조정이 한계에 닿았어요",
       body,
       notices: outcome.limited.map((v) => LIMIT_NOTICES[v]),
+      tone: body ? "accent" : "neutral",
     };
   }
-  return { heading: resultHeading(p), body: describePrescription(p), notices: [] };
+  return {
+    heading: resultHeading(p),
+    body: describePrescription(p),
+    notices: [],
+    tone: p.kind === "hold" ? "positive" : p.kind === "adjust" ? "accent" : "neutral",
+  };
 }
+
+const PANEL_TONE = {
+  positive: { section: "bg-positive-soft", heading: "text-positive" },
+  accent: { section: "bg-accent-soft", heading: "text-accent" },
+  neutral: { section: "border border-line bg-card", heading: "" },
+} as const;
 
 function formatSeconds(s: number): string {
   const min = Math.floor(s / 60);
@@ -97,34 +109,46 @@ function formatSeconds(s: number): string {
   return sec === 0 ? `${min}분` : `${min}분 ${sec}초`;
 }
 
-// 조정값이 있고 기준과 다르면 "260g (기준 250g)" 형태로 병기(ADR-002).
-function numLine(
+// 레시피 카드 한 칸. 조정값이 있고 기준과 다르면 값을 액센트로, 기준을 주석으로(ADR-002).
+type RecipeRow = { label: string; value: string; note?: string; adjusted?: boolean; wide?: boolean };
+
+function numRow(
   label: string,
   unit: string,
   base: number | null,
   adjusted: number | null | undefined,
-): string | null {
+): RecipeRow | null {
   const value = adjusted ?? base;
   if (value === null) return null;
   if (adjusted != null && base !== null && adjusted !== base)
-    return `${label} ${adjusted}${unit} (기준 ${base}${unit})`;
-  return `${label} ${value}${unit}`;
+    return { label, value: `${adjusted}${unit}`, note: `기준 ${base}${unit}`, adjusted: true };
+  return { label, value: `${value}${unit}` };
 }
 
-function recipeLines(r: RecipeDisplay, adj: AdjustedParams | null): string[] {
-  const lines: (string | null)[] = [];
-  if (r.dripper) lines.push(r.dripper);
-  lines.push(numLine("원두", "g", r.dose_g, adj?.dose_g));
-  lines.push(numLine("물", "g", r.water_g, adj?.water_g));
-  lines.push(numLine("물온도", "°C", r.water_temp_c, adj?.water_temp_c));
+function recipeRows(r: RecipeDisplay, adj: AdjustedParams | null): RecipeRow[] {
+  const rows: (RecipeRow | null)[] = [];
+  if (r.dripper) rows.push({ label: "드리퍼", value: r.dripper });
+  rows.push(numRow("원두", "g", r.dose_g, adj?.dose_g));
+  rows.push(numRow("물", "g", r.water_g, adj?.water_g));
+  rows.push(numRow("물온도", "°C", r.water_temp_c, adj?.water_temp_c));
   if (r.brew_time_min_s !== null && r.brew_time_max_s !== null)
-    lines.push(`추출 ${formatSeconds(r.brew_time_min_s)}~${formatSeconds(r.brew_time_max_s)}`);
+    rows.push({
+      label: "추출 시간",
+      value: `${formatSeconds(r.brew_time_min_s)}~${formatSeconds(r.brew_time_max_s)}`,
+    });
   else if (r.brew_time_min_s !== null || r.brew_time_max_s !== null)
-    lines.push(`추출 ${formatSeconds((r.brew_time_min_s ?? r.brew_time_max_s)!)}`);
+    rows.push({
+      label: "추출 시간",
+      value: formatSeconds((r.brew_time_min_s ?? r.brew_time_max_s)!),
+    });
   if (r.grind_text)
-    lines.push(`분쇄 ${r.grind_text}${r.grind_um !== null ? ` (약 ${r.grind_um}µm)` : ""}`);
-  else if (r.grind_um !== null) lines.push(`분쇄 약 ${r.grind_um}µm`);
-  return lines.filter((l): l is string => l !== null);
+    rows.push({
+      label: "분쇄",
+      value: `${r.grind_text}${r.grind_um !== null ? ` (약 ${r.grind_um}µm)` : ""}`,
+      wide: true,
+    });
+  else if (r.grind_um !== null) rows.push({ label: "분쇄", value: `약 ${r.grind_um}µm`, wide: true });
+  return rows.filter((row): row is RecipeRow => row !== null);
 }
 
 export default function Flow({
@@ -213,7 +237,7 @@ export default function Flow({
   const panel = result.kind === "ask" ? null : resultPanel(result.prescription, outcome);
   const effAdjusted = live?.adjusted ?? adjusted;
   const effSolution = live?.lastSolution ?? lastSolution;
-  const lines = recipeLines(recipe, effAdjusted);
+  const rows = recipeRows(recipe, effAdjusted);
   // 붓기 텍스트는 박제(총량 조정을 모름) — 물량이 조정된 화면에선 어긋남을 힌트로 무마한다.
   const waterDelta =
     effAdjusted?.water_g != null && recipe.water_g !== null
@@ -221,30 +245,51 @@ export default function Flow({
       : 0;
 
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-5 py-10">
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-5 py-8">
       <header>
-        <h1 className="text-xl font-semibold">커피 추출 도우미</h1>
-        <p className="mt-1 text-sm opacity-70">
-          구매하신 원두의 추천 레시피입니다. 결과에 따라 추출을 조정해 볼 수 있어요.
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+          커피 추출 도우미
         </p>
+        <h1 className="mt-1.5 text-xl font-bold leading-snug tracking-tight">
+          {recipe.beanName}
+        </h1>
+        {recipe.beanIntro && (
+          <p className="mt-1 text-sm leading-relaxed text-muted">{recipe.beanIntro}</p>
+        )}
       </header>
 
-      <section className="rounded-xl border border-black/10 p-4 dark:border-white/15">
-        <p className="text-xs font-medium uppercase tracking-wide opacity-60">
-          {effAdjusted ? "오늘의 추천 레시피 · 지난 피드백 반영" : "오늘의 추천 레시피"}
-        </p>
-        <p className="mt-1 font-medium">{recipe.beanName}</p>
-        {recipe.beanIntro && <p className="mt-1 text-sm opacity-70">{recipe.beanIntro}</p>}
-        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm opacity-80">
-          {lines.map((line) => (
-            <div key={line}>{line}</div>
+      <section className="rounded-2xl border border-line bg-card p-5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+            오늘의 추천 레시피
+          </p>
+          {effAdjusted && (
+            <span className="rounded-full bg-accent-soft px-2.5 py-1 text-[11px] font-medium leading-none text-accent">
+              지난 피드백 반영
+            </span>
+          )}
+        </div>
+        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
+          {rows.map((row) => (
+            <div key={row.label} className={row.wide ? "col-span-2" : undefined}>
+              <dt className="text-xs text-muted">{row.label}</dt>
+              <dd
+                className={`mt-0.5 text-[15px] font-semibold ${row.adjusted ? "text-accent" : ""}`}
+              >
+                {row.value}
+                {row.note && (
+                  <span className="ml-1.5 text-xs font-normal text-muted">{row.note}</span>
+                )}
+              </dd>
+            </div>
           ))}
         </dl>
         {recipe.pour_text && (
-          <div className="mt-2 border-t border-black/5 pt-2 text-sm opacity-80 dark:border-white/10">
-            <p className="whitespace-pre-line">{recipe.pour_text}</p>
+          <div className="mt-4 border-t border-line pt-3">
+            <p className="text-xs text-muted">붓기</p>
+            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed">{recipe.pour_text}</p>
             {waterDelta !== 0 && (
-              <p className="mt-1 text-xs opacity-70">
+              <p className="mt-1.5 text-xs leading-relaxed text-accent">
                 {waterDelta > 0
                   ? `늘어난 물 ${waterDelta}g은 마지막 푸어에 더해 주세요.`
                   : `줄어든 물 ${-waterDelta}g은 마지막 푸어에서 빼 주세요.`}
@@ -253,13 +298,15 @@ export default function Flow({
           </div>
         )}
         {effSolution && (
-          <p className="mt-2 text-sm font-medium">최근 솔루션: {effSolution}</p>
+          <p className="mt-4 rounded-xl bg-accent-soft px-3.5 py-2.5 text-sm font-medium text-accent">
+            최근 솔루션 · {effSolution}
+          </p>
         )}
         <a
           href={UNSPECIALTY_COMPASS_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 inline-block text-xs underline opacity-60 hover:opacity-90"
+          className="mt-3 inline-block text-xs text-muted underline underline-offset-4 hover:text-accent"
         >
           내 분쇄도 측정하기 (언스페셜티 나침반) ↗
         </a>
@@ -268,21 +315,21 @@ export default function Flow({
       {canGoBack && (
         <button
           onClick={back}
-          className="-mb-2 self-start text-sm opacity-60 hover:opacity-90"
+          className="-mb-2 self-start text-sm text-muted transition-colors hover:text-foreground"
         >
           ← 뒤로
         </button>
       )}
 
       {result.kind === "ask" ? (
-        <section className="flex flex-col gap-3">
-          <h2 className="font-medium">{questionPrompt(result.question)}</h2>
+        <section className="flex flex-col gap-3.5">
+          <h2 className="text-lg font-bold tracking-tight">{questionPrompt(result.question)}</h2>
           <div className="flex flex-col gap-2">
             {result.question.options.map((opt) => (
               <button
                 key={opt}
                 onClick={() => answer(result.question, opt)}
-                className="rounded-lg border border-black/15 px-4 py-3 text-left hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+                className="min-h-12 rounded-xl border border-line bg-card px-4 py-3 text-left text-[15px] font-medium shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-colors hover:border-accent/50 active:bg-accent-soft"
               >
                 {LABEL[result.question.id][opt]}
               </button>
@@ -290,28 +337,28 @@ export default function Flow({
           </div>
           <button
             onClick={() => setBailed(true)}
-            className="mt-1 self-start text-sm underline opacity-60 hover:opacity-90"
+            className="self-start text-sm text-muted underline underline-offset-4 transition-colors hover:text-accent"
           >
             잘 모르겠어요 — 도움 받기
           </button>
         </section>
       ) : (
         panel && (
-        <section className="flex flex-col gap-3 rounded-xl bg-black/[0.03] p-5 dark:bg-white/[0.06]">
-          <h2 className="font-semibold">{panel.heading}</h2>
-          {panel.body && <p className="text-lg">{panel.body}</p>}
-          {panel.notices.map((n) => (
-            <p key={n} className="text-sm opacity-80">
-              {n}
-            </p>
-          ))}
-          <button
-            onClick={reset}
-            className="mt-2 self-start rounded-lg border border-black/15 px-4 py-2 text-sm hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
-          >
-            처음부터
-          </button>
-        </section>
+          <section className={`flex flex-col gap-2.5 rounded-2xl p-5 ${PANEL_TONE[panel.tone].section}`}>
+            <h2 className={`font-bold ${PANEL_TONE[panel.tone].heading}`}>{panel.heading}</h2>
+            {panel.body && <p className="text-lg font-semibold leading-relaxed">{panel.body}</p>}
+            {panel.notices.map((n) => (
+              <p key={n} className="text-sm leading-relaxed text-muted">
+                {n}
+              </p>
+            ))}
+            <button
+              onClick={reset}
+              className="mt-2 self-start rounded-lg border border-line bg-card px-4 py-2 text-sm font-medium transition-colors hover:border-accent/50"
+            >
+              처음부터
+            </button>
+          </section>
         )
       )}
     </main>

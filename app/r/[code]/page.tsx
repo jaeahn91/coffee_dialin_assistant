@@ -32,9 +32,10 @@ export default async function RecipePage({
   if (resolved.status !== "ok") {
     const notice = NOTICE[resolved.status];
     return (
-      <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-4 px-5 py-10">
-        <h1 className="text-xl font-semibold">{notice.title}</h1>
-        <p className="text-sm opacity-70">{notice.body}</p>
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-4 px-5 py-10 text-center">
+        <span aria-hidden className="text-4xl">☕</span>
+        <h1 className="text-xl font-bold tracking-tight">{notice.title}</h1>
+        <p className="max-w-xs text-[15px] leading-relaxed text-muted">{notice.body}</p>
       </main>
     );
   }
