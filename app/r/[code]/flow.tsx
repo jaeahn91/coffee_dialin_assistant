@@ -308,7 +308,7 @@ export default function Flow({
           rel="noopener noreferrer"
           className="mt-3 inline-block text-xs text-muted underline underline-offset-4 hover:text-accent"
         >
-          내 분쇄도 측정하기 (언스페셜티 나침반) ↗
+          내 분쇄도 측정하기 (언스페셜티 사이트) ↗
         </a>
       </section>
 
