@@ -35,3 +35,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 개인 인계 문서 (채용/개인정보 포함, 공개 금지)
+handoff_*.md
